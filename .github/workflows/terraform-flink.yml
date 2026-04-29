@@ -1,28 +1,32 @@
-name: terraform-flink-plan
+name: terraform-flink
 
 # ============================================================================
-# Plan-only CI for the terraform/ tree.
+# CI for the terraform/ tree — plan, apply, destroy across dev/uat/prd.
 #
-#   • Trigger on PRs touching terraform/, tools/, or this workflow — gives
-#     reviewers a `terragrunt plan --all` against the dev stack.
-#   • Manual workflow_dispatch lets you target a specific environment
-#     (dev / uat / prd) once those stacks exist.
+#   • workflow_dispatch picks `stack` (dev / uat / prd) and `action`
+#     (plan / apply / destroy).
+#   • PRs touching terraform/, tools/, or this workflow run plan-only against
+#     dev — review-time validation, no infra changes.
 #
-# Apply / destroy are intentionally NOT exposed: state is currently local
-# (no remote backend yet), so applying from CI would create resources whose
-# state is then thrown away — duplicate-name failures on the next run.
-# Switch to a remote backend, then add an apply job.
+# State backend: Azure Storage (azurerm). Auth: SP + client secret (no OIDC).
+# Required GitHub repo secrets — see .github/README.md.
 # ============================================================================
 
 on:
   workflow_dispatch:
     inputs:
       stack:
-        description: "Environment under terraform/live/ (dev, uat, prd)"
+        description: "Environment under terraform/live/"
         type: choice
         required: true
         options: [dev, uat, prd]
         default: dev
+      action:
+        description: "Terragrunt action"
+        type: choice
+        required: true
+        options: [plan, apply, destroy]
+        default: plan
   pull_request:
     paths:
       - "terraform/**"
@@ -32,25 +36,39 @@ on:
 permissions:
   contents: read
 
+# Cancel in-progress runs only for PRs (rapid iteration). For workflow_dispatch
+# (apply / destroy) we never cancel — interrupting an apply mid-flight risks
+# leaving Confluent resources orphaned without state to track them.
 concurrency:
   group: terraform-flink-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  plan:
-    name: terragrunt plan
+  terragrunt:
+    name: terragrunt ${{ github.event.inputs.action || 'plan' }} (${{ github.event.inputs.stack || 'dev' }})
     runs-on: ubuntu-latest
     env:
-      # Confluent Cloud admin credentials (manage compute pools, environments).
+      # ---- Confluent Cloud admin credentials (cloud-scoped) ----
       TF_VAR_confluent_cloud_api_key:    ${{ secrets.CONFLUENT_CLOUD_API_KEY }}
       TF_VAR_confluent_cloud_api_secret: ${{ secrets.CONFLUENT_CLOUD_API_SECRET }}
 
-      # Flink-scoped credentials (submit statements). Owned by the service
-      # account referenced as service_account_id in flink-config.json.
+      # ---- Flink-scoped credentials (submit statements) ----
       TF_VAR_confluent_flink_api_key:    ${{ secrets.CONFLUENT_FLINK_API_KEY }}
       TF_VAR_confluent_flink_api_secret: ${{ secrets.CONFLUENT_FLINK_API_SECRET }}
 
+      # ---- Azure SP for state backend (no OIDC — client secret auth) ----
+      ARM_TENANT_ID:       ${{ secrets.ARM_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_CLIENT_ID:       ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET:   ${{ secrets.ARM_CLIENT_SECRET }}
+
+      # ---- State backend location (read by terraform/live/root.hcl) ----
+      TG_STATE_RESOURCE_GROUP:  ${{ secrets.TG_STATE_RESOURCE_GROUP }}
+      TG_STATE_STORAGE_ACCOUNT: ${{ secrets.TG_STATE_STORAGE_ACCOUNT }}
+      TG_STATE_CONTAINER:       ${{ secrets.TG_STATE_CONTAINER }}
+
       TARGET_STACK: ${{ github.event_name == 'workflow_dispatch' && inputs.stack || 'dev' }}
+      TG_ACTION:    ${{ github.event_name == 'workflow_dispatch' && inputs.action || 'plan' }}
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -71,6 +89,14 @@ jobs:
         working-directory: terraform/live/${{ env.TARGET_STACK }}
         run: terragrunt run-all init -input=false --terragrunt-non-interactive
 
-      - name: Terragrunt plan
+      - name: "Terragrunt ${{ env.TG_ACTION }}"
         working-directory: terraform/live/${{ env.TARGET_STACK }}
-        run: terragrunt run-all plan -input=false --terragrunt-non-interactive
+        # `--terragrunt-non-interactive` suppresses Terragrunt's own confirmation
+        # prompts (e.g. the dependent-modules warning on destroy), separate from
+        # Terraform's `-auto-approve`.
+        run: |
+          case "${TG_ACTION}" in
+            plan)    terragrunt run-all plan    -input=false --terragrunt-non-interactive ;;
+            apply)   terragrunt run-all apply   -input=false -auto-approve --terragrunt-non-interactive ;;
+            destroy) terragrunt run-all destroy -input=false -auto-approve --terragrunt-non-interactive ;;
+          esac

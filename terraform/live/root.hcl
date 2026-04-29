@@ -33,19 +33,36 @@ EOF
 }
 
 # -----------------------------------------------------------------------------
-# Remote State — Local backend for PoC
+# Remote State — Azure Storage (azurerm) backend
 # -----------------------------------------------------------------------------
-# For production, switch to azurerm backend similar to the workload-identity
-# repo. Local state is sufficient for initial testing.
+# State location is supplied via env vars so the same root.hcl works locally
+# and in CI without code changes:
+#
+#   TG_STATE_RESOURCE_GROUP   — RG that contains the storage account
+#   TG_STATE_STORAGE_ACCOUNT  — globally-unique SA name
+#   TG_STATE_CONTAINER        — blob container (defaults to "tfstate")
+#
+# Auth: ARM_TENANT_ID / ARM_SUBSCRIPTION_ID / ARM_CLIENT_ID /
+# ARM_CLIENT_SECRET picked up by the azurerm SDK directly. No OIDC.
+# (Locally, `az login` + your user creds also work as a fallback.)
+#
+# State key is derived from the stack's path, so each stack has its own blob:
+#   dev/compute-pool/terraform.tfstate
+#   dev/statements/terraform.tfstate
+#   uat/compute-pool/terraform.tfstate
+#   ...
 # -----------------------------------------------------------------------------
 
 remote_state {
-  backend = "local"
+  backend = "azurerm"
   generate = {
     path      = "backend.tf"
     if_exists = "overwrite_terragrunt"
   }
   config = {
-    path = "${path_relative_to_include()}/terraform.tfstate"
+    resource_group_name  = get_env("TG_STATE_RESOURCE_GROUP")
+    storage_account_name = get_env("TG_STATE_STORAGE_ACCOUNT")
+    container_name       = get_env("TG_STATE_CONTAINER", "tfstate")
+    key                  = "${path_relative_to_include()}/terraform.tfstate"
   }
 }
