@@ -64,5 +64,11 @@ remote_state {
     storage_account_name = get_env("TG_STATE_STORAGE_ACCOUNT")
     container_name       = get_env("TG_STATE_CONTAINER", "tfstate")
     key                  = "${path_relative_to_include()}/terraform.tfstate"
+
+    # Use the AAD identity (ARM_CLIENT_ID/SECRET) directly for blob ops.
+    # Without this, the backend tries Microsoft.Storage/storageAccounts/listKeys,
+    # which our SP doesn't have (data-plane RBAC only). With this, the SP's
+    # `Storage Blob Data Contributor` role on the SA is exactly enough.
+    use_azuread_auth = true
   }
 }
