@@ -69,8 +69,8 @@ jobs:
 
       - name: Terragrunt init
         working-directory: terraform/live/${{ env.TARGET_STACK }}
-        run: terragrunt init --all -input=false --non-interactive
+        run: terragrunt run-all init -input=false --terragrunt-non-interactive
 
       - name: Terragrunt plan
         working-directory: terraform/live/${{ env.TARGET_STACK }}
-        run: terragrunt plan --all -input=false --non-interactive
+        run: terragrunt run-all plan -input=false --terragrunt-non-interactive
