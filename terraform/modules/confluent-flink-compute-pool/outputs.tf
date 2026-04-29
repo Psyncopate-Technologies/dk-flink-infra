@@ -22,3 +22,8 @@ output "resource_name" {
   description = "The resource name of the Flink compute pool."
   value       = confluent_flink_compute_pool.this.resource_name
 }
+
+output "flink_rest_endpoint" {
+  description = "Flink REST endpoint for the compute pool's region."
+  value       = data.confluent_flink_region.this.rest_endpoint
+}

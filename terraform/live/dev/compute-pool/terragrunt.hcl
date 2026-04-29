@@ -1,8 +1,8 @@
 # -----------------------------------------------------------------------------
-# Dev Environment — Flink Compute Pool + Statements
+# Dev — Flink Compute Pool
 # -----------------------------------------------------------------------------
-# Creates a Flink compute pool and optional SQL statements for the dev
-# environment. Configuration values are loaded from flink-config.json.
+# Provisions the Flink compute pool that the statements stack runs on.
+# Configuration is loaded from the shared ../flink-config.json.
 # -----------------------------------------------------------------------------
 
 include "root" {
@@ -10,11 +10,11 @@ include "root" {
 }
 
 locals {
-  config = jsondecode(file("${get_terragrunt_dir()}/flink-config.json"))
+  config = jsondecode(file("${get_terragrunt_dir()}/../flink-config.json"))
 }
 
 terraform {
-  source = "../../modules/confluent-flink-compute-pool"
+  source = "../../../modules/confluent-flink-compute-pool"
 }
 
 inputs = {

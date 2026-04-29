@@ -1,0 +1,76 @@
+name: terraform-flink-plan
+
+# ============================================================================
+# Plan-only CI for the terraform/ tree.
+#
+#   • Trigger on PRs touching terraform/, tools/, or this workflow — gives
+#     reviewers a `terragrunt plan --all` against the dev stack.
+#   • Manual workflow_dispatch lets you target a specific environment
+#     (dev / uat / prd) once those stacks exist.
+#
+# Apply / destroy are intentionally NOT exposed: state is currently local
+# (no remote backend yet), so applying from CI would create resources whose
+# state is then thrown away — duplicate-name failures on the next run.
+# Switch to a remote backend, then add an apply job.
+# ============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      stack:
+        description: "Environment under terraform/live/ (dev, uat, prd)"
+        type: choice
+        required: true
+        options: [dev, uat, prd]
+        default: dev
+  pull_request:
+    paths:
+      - "terraform/**"
+      - "tools/**"
+      - ".github/workflows/terraform-flink.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-flink-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: terragrunt plan
+    runs-on: ubuntu-latest
+    env:
+      # Confluent Cloud admin credentials (manage compute pools, environments).
+      TF_VAR_confluent_cloud_api_key:    ${{ secrets.CONFLUENT_CLOUD_API_KEY }}
+      TF_VAR_confluent_cloud_api_secret: ${{ secrets.CONFLUENT_CLOUD_API_SECRET }}
+
+      # Flink-scoped credentials (submit statements). Owned by the service
+      # account referenced as service_account_id in flink-config.json.
+      TF_VAR_confluent_flink_api_key:    ${{ secrets.CONFLUENT_FLINK_API_KEY }}
+      TF_VAR_confluent_flink_api_secret: ${{ secrets.CONFLUENT_FLINK_API_SECRET }}
+
+      TARGET_STACK: ${{ github.event_name == 'workflow_dispatch' && inputs.stack || 'dev' }}
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install pinned tools
+        run: |
+          # Invoked via bash so the exec bit on install.sh isn't required —
+          # file-mode bits get stripped by some copy/zip paths.
+          bash tools/install.sh
+          echo "${GITHUB_WORKSPACE}/tools/bin" >> "${GITHUB_PATH}"
+
+      - name: Version check
+        run: |
+          terraform -version
+          terragrunt -version
+
+      - name: Terragrunt init
+        working-directory: terraform/live/${{ env.TARGET_STACK }}
+        run: terragrunt init --all -input=false --non-interactive
+
+      - name: Terragrunt plan
+        working-directory: terraform/live/${{ env.TARGET_STACK }}
+        run: terragrunt plan --all -input=false --non-interactive

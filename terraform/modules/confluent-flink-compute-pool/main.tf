@@ -9,6 +9,11 @@ data "confluent_environment" "this" {
   id = var.environment_id
 }
 
+data "confluent_flink_region" "this" {
+  cloud  = var.cloud
+  region = var.region
+}
+
 resource "confluent_flink_compute_pool" "this" {
   display_name = var.display_name
   cloud        = var.cloud

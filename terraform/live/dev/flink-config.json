@@ -1,5 +1,5 @@
 {
-  "_comment": "Dev environment Flink configuration. Update values as needed.",
+  "_comment": "Dev environment Flink configuration. Shared by compute-pool and statements stacks.",
 
   "organization_id": "0369af3f-d68c-44de-97cb-52a50017dc59",
   "environment_id": "env-1y1176",
@@ -13,7 +13,7 @@
   },
 
   "statements": {
-    "_comment": "Add Flink SQL statements here when ready. Example below.",
+    "_comment": "Add Flink SQL statements as map entries. Keys prefixed with _ are ignored by terragrunt.",
     "_example": {
       "name": "example-statement",
       "sql": "SELECT * FROM my_table;",
@@ -21,6 +21,13 @@
         "sql.current-catalog": "my-catalog",
         "sql.current-database": "my-database"
       },
+      "stopped": false
+    },
+
+    "smoke_test": {
+      "name": "smoke-test",
+      "sql": "SELECT 1;",
+      "properties": {},
       "stopped": false
     }
   }

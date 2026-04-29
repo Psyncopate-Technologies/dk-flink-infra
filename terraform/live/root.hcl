@@ -10,17 +10,6 @@ generate "provider" {
   path      = "provider.tf"
   if_exists = "overwrite_terragrunt"
   contents  = <<EOF
-terraform {
-  required_version = ">= 1.9, < 2.0"
-
-  required_providers {
-    confluent = {
-      source  = "confluentinc/confluent"
-      version = "~> 2.10"
-    }
-  }
-}
-
 # Confluent Cloud provider — credentials from environment variables.
 # Set TF_VAR_confluent_cloud_api_key and TF_VAR_confluent_cloud_api_secret
 # before running terragrunt.

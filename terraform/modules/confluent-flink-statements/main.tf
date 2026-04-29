@@ -10,17 +10,7 @@ data "confluent_environment" "this" {
   id = var.environment_id
 }
 
-data "confluent_flink_compute_pool" "this" {
-  id = var.compute_pool_id
-
-  environment {
-    id = data.confluent_environment.this.id
-  }
-}
-
-data "confluent_organization" "this" {
-  id = var.organization_id
-}
+data "confluent_organization" "this" {}
 
 resource "confluent_flink_statement" "statements" {
   for_each = var.statements
@@ -34,11 +24,18 @@ resource "confluent_flink_statement" "statements" {
   }
 
   compute_pool {
-    id = data.confluent_flink_compute_pool.this.id
+    id = var.compute_pool_id
   }
 
   principal {
     id = var.principal_id
+  }
+
+  rest_endpoint = var.flink_rest_endpoint
+
+  credentials {
+    key    = var.flink_api_key
+    secret = var.flink_api_secret
   }
 
   statement  = each.value.sql

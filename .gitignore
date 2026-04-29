@@ -18,6 +18,11 @@ override.tf.json
 .env
 *.env
 .envrc
+# Allow pinned tool versions (consumed by tools/install.sh in CI + locally).
+!tools/versions.env
+
+# Tooling binaries downloaded by tools/install.sh
+tools/bin/
 
 # IDE
 .idea/
