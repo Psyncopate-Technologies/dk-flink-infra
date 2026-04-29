@@ -1,0 +1,27 @@
+{
+  "_comment": "Dev environment Flink configuration. Update values as needed.",
+
+  "organization_id": "0369af3f-d68c-44de-97cb-52a50017dc59",
+  "environment_id": "env-1y1176",
+  "service_account_id": "sa-nv299xk",
+
+  "compute_pool": {
+    "display_name": "dk-confluent-dev-flink-pool",
+    "cloud": "AWS",
+    "region": "us-east-2",
+    "max_cfu": 5
+  },
+
+  "statements": {
+    "_comment": "Add Flink SQL statements here when ready. Example below.",
+    "_example": {
+      "name": "example-statement",
+      "sql": "SELECT * FROM my_table;",
+      "properties": {
+        "sql.current-catalog": "my-catalog",
+        "sql.current-database": "my-database"
+      },
+      "stopped": false
+    }
+  }
+}
