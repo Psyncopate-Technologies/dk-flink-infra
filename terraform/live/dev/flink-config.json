@@ -15,7 +15,7 @@
   "statements": {
     "inventory_low_stock_alerts": {
       "name": "inventory-low-stock-alerts",
-      "sql": "INSERT INTO `inventory.modified.topic` SELECT id, quantity, productid, CASE WHEN quantity = 0 THEN 'OUT_OF_STOCK' ELSE 'LOW' END AS stock_level FROM `inventory.avro.topic` WHERE quantity < 10",
+      "sql": "INSERT INTO `inventory.modified.topic` SELECT * FROM `inventory.avro.topic`",
       "properties": {
         "sql.current-catalog": "default",
         "sql.current-database": "base_cluster"
