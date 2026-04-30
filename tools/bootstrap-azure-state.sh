@@ -86,13 +86,15 @@ SP_OBJECT_ID="$(az ad sp show --id "${ARM_CLIENT_ID}" --query id -o tsv)"
 
 echo "[bootstrap] [6/8] creating Key Vault (RBAC mode, no public access)..."
 if ! az keyvault show --name "${AKV_NAME}" --resource-group "${RG_NAME}" -o none 2>/dev/null; then
+  # Note: soft-delete is mandatory and always-on in current Azure CLI
+  # (the --enable-soft-delete flag was removed). --retention-days still
+  # controls the soft-delete retention window.
   az keyvault create \
     --name "${AKV_NAME}" \
     --resource-group "${RG_NAME}" \
     --location "${LOCATION}" \
     --sku standard \
     --enable-rbac-authorization true \
-    --enable-soft-delete true \
     --retention-days 30 \
     --enable-purge-protection true \
     --public-network-access Enabled \
