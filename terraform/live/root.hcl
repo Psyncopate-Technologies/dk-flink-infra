@@ -106,10 +106,19 @@ remote_state {
     container_name       = get_env("TG_STATE_CONTAINER", "tfstate")
     key                  = "${path_relative_to_include()}/terraform.tfstate"
 
-    # Use the AAD identity (ARM_CLIENT_ID/SECRET) directly for blob ops.
-    # Without this, the backend tries Microsoft.Storage/storageAccounts/listKeys,
-    # which our SP doesn't have (data-plane RBAC only). With this, the SP's
-    # `Storage Blob Data Contributor` role on the SA is exactly enough.
+    # Use the AAD identity directly for blob ops (data-plane RBAC).
+    # Without this, the backend tries Microsoft.Storage/storageAccounts/listKeys
+    # which our SP doesn't have (only `Storage Blob Data Contributor`).
     use_azuread_auth = true
+
+    # Pass SP creds explicitly so the auth chain short-circuits to client-secret
+    # auth and never tries MSI / Azure CLI fallbacks. On GitHub-hosted runners
+    # (not on Azure VMs), the MSI/IMDS endpoint at 169.254.169.254 doesn't
+    # answer, and the Azure SDK waits ~3 minutes before giving up — exactly
+    # the symptom we hit when `Initializing the backend...` hangs forever.
+    tenant_id       = get_env("ARM_TENANT_ID")
+    subscription_id = get_env("ARM_SUBSCRIPTION_ID")
+    client_id       = get_env("ARM_CLIENT_ID")
+    client_secret   = get_env("ARM_CLIENT_SECRET")
   }
 }
