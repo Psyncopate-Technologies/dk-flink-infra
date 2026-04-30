@@ -28,7 +28,7 @@
       "name": "smoke-test",
       "sql": "SELECT 1;",
       "properties": {},
-      "stopped": false
+      "stopped": true
     }
   }
 }
