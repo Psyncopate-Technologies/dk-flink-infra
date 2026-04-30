@@ -33,10 +33,9 @@ resource "confluent_flink_statement" "statements" {
 
   rest_endpoint = var.flink_rest_endpoint
 
-  credentials {
-    key    = var.flink_api_key
-    secret = var.flink_api_secret
-  }
+  # `credentials` omitted — flink_api_key / flink_api_secret are supplied at
+  # the provider level (see generated provider.tf via root.hcl), so all
+  # confluent_flink_statement resources inherit them automatically.
 
   statement  = each.value.sql
   properties = each.value.properties

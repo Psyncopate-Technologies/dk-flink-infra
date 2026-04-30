@@ -6,5 +6,9 @@ terraform {
       source  = "confluentinc/confluent"
       version = "~> 2.10"
     }
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 3.0"
+    }
   }
 }

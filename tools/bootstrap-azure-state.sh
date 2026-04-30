@@ -26,10 +26,12 @@ RG_NAME="${RG_NAME:-rg-flink-tf-state}"
 SA_NAME="${SA_NAME:-saflinkstate$(printf '%05d' "$((RANDOM % 100000))")}"
 CONTAINER_NAME="${CONTAINER_NAME:-tfstate}"
 SP_NAME="${SP_NAME:-sp-flink-tf-state-rw}"
+AKV_NAME="${AKV_NAME:-kvflink$(printf '%05d' "$((RANDOM % 100000))")}"
 
 echo "[bootstrap] subscription=${AZURE_SUBSCRIPTION_ID}"
 echo "[bootstrap] location=${LOCATION}"
-echo "[bootstrap] rg=${RG_NAME} sa=${SA_NAME} container=${CONTAINER_NAME} sp=${SP_NAME}"
+echo "[bootstrap] rg=${RG_NAME} sa=${SA_NAME} container=${CONTAINER_NAME}"
+echo "[bootstrap] sp=${SP_NAME} akv=${AKV_NAME}"
 echo
 
 az account set --subscription "${AZURE_SUBSCRIPTION_ID}"
@@ -66,12 +68,12 @@ az storage container create \
   --auth-mode login \
   -o none
 
-echo "[bootstrap] [5/6] creating service principal with RBAC..."
-SCOPE="/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${RG_NAME}/providers/Microsoft.Storage/storageAccounts/${SA_NAME}"
+echo "[bootstrap] [5/8] creating service principal with RBAC on storage account..."
+SCOPE_SA="/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${RG_NAME}/providers/Microsoft.Storage/storageAccounts/${SA_NAME}"
 SP_JSON="$(az ad sp create-for-rbac \
   --name "${SP_NAME}" \
   --role "Storage Blob Data Contributor" \
-  --scopes "${SCOPE}" \
+  --scopes "${SCOPE_SA}" \
   --years 1 \
   -o json)"
 
@@ -80,13 +82,52 @@ parse() { python3 -c "import json,sys; print(json.load(sys.stdin)['$1'])" <<<"${
 ARM_TENANT_ID="$(parse tenant)"
 ARM_CLIENT_ID="$(parse appId)"
 ARM_CLIENT_SECRET="$(parse password)"
+SP_OBJECT_ID="$(az ad sp show --id "${ARM_CLIENT_ID}" --query id -o tsv)"
 
-echo "[bootstrap] [6/6] done."
+echo "[bootstrap] [6/8] creating Key Vault (RBAC mode, no public access)..."
+if ! az keyvault show --name "${AKV_NAME}" --resource-group "${RG_NAME}" -o none 2>/dev/null; then
+  az keyvault create \
+    --name "${AKV_NAME}" \
+    --resource-group "${RG_NAME}" \
+    --location "${LOCATION}" \
+    --sku standard \
+    --enable-rbac-authorization true \
+    --enable-soft-delete true \
+    --retention-days 30 \
+    --enable-purge-protection true \
+    --public-network-access Enabled \
+    -o none
+fi
+
+echo "[bootstrap] [7/8] granting SP \`Key Vault Secrets User\` on the AKV..."
+SCOPE_AKV="/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${RG_NAME}/providers/Microsoft.KeyVault/vaults/${AKV_NAME}"
+az role assignment create \
+  --assignee-object-id "${SP_OBJECT_ID}" \
+  --assignee-principal-type ServicePrincipal \
+  --role "Key Vault Secrets User" \
+  --scope "${SCOPE_AKV}" \
+  -o none || echo "[bootstrap]   (role assignment may already exist — continuing)"
+
+# The user running this script also needs `Key Vault Secrets Officer` to set
+# secret values from the CLI later. Grant it (idempotent — no-op if you
+# already have it).
+ME_OBJECT_ID="$(az ad signed-in-user show --query id -o tsv 2>/dev/null || true)"
+if [[ -n "${ME_OBJECT_ID}" ]]; then
+  az role assignment create \
+    --assignee-object-id "${ME_OBJECT_ID}" \
+    --assignee-principal-type User \
+    --role "Key Vault Secrets Officer" \
+    --scope "${SCOPE_AKV}" \
+    -o none || true
+fi
+
+echo "[bootstrap] [8/8] done."
 echo
 cat <<EOF
 ======================================================================
-Save these as GitHub repo secrets (Settings → Secrets and variables →
-Actions → Repository secrets). Each line is one secret.
+GitHub configuration — Settings → Secrets and variables → Actions
+
+REPO SECRETS (sensitive — set under "Repository secrets"):
 
   ARM_TENANT_ID              ${ARM_TENANT_ID}
   ARM_SUBSCRIPTION_ID        ${AZURE_SUBSCRIPTION_ID}
@@ -96,8 +137,26 @@ Actions → Repository secrets). Each line is one secret.
   TG_STATE_STORAGE_ACCOUNT   ${SA_NAME}
   TG_STATE_CONTAINER         ${CONTAINER_NAME}
 
+REPO VARS (non-sensitive — set under "Variables"):
+
+  AZURE_KEY_VAULT_NAME                ${AKV_NAME}
+  AZURE_KEY_VAULT_RESOURCE_GROUP_NAME ${RG_NAME}
+
 ----------------------------------------------------------------------
-For local testing, paste these into a (gitignored) .env.azure and
+NEXT — populate the AKV with the four Confluent secrets. Use the names
+below verbatim (root.hcl reads them by exact name):
+
+  az keyvault secret set --vault-name "${AKV_NAME}" \\
+    --name confluent-admin-key   --value "<cloud-api-key>"
+  az keyvault secret set --vault-name "${AKV_NAME}" \\
+    --name confluent-admin-secret --value "<cloud-api-secret>"
+  az keyvault secret set --vault-name "${AKV_NAME}" \\
+    --name confluent-flink-key    --value "<flink-api-key>"
+  az keyvault secret set --vault-name "${AKV_NAME}" \\
+    --name confluent-flink-secret --value "<flink-api-secret>"
+
+----------------------------------------------------------------------
+For local testing, paste this into a (gitignored) .env.azure and
 \`set -a; source .env.azure; set +a\` before running terragrunt:
 
   export ARM_TENANT_ID="${ARM_TENANT_ID}"
@@ -107,6 +166,8 @@ For local testing, paste these into a (gitignored) .env.azure and
   export TG_STATE_RESOURCE_GROUP="${RG_NAME}"
   export TG_STATE_STORAGE_ACCOUNT="${SA_NAME}"
   export TG_STATE_CONTAINER="${CONTAINER_NAME}"
+  export TF_VAR_azure_key_vault_name="${AKV_NAME}"
+  export TF_VAR_azure_key_vault_resource_group_name="${RG_NAME}"
 
 ----------------------------------------------------------------------
 ARM_CLIENT_SECRET expires 1 year from now. Rotate via:

@@ -40,11 +40,8 @@ inputs = {
   principal_id        = local.config.service_account_id
   compute_pool_id     = dependency.compute_pool.outputs.id
   flink_rest_endpoint = dependency.compute_pool.outputs.flink_rest_endpoint
+  statements          = local.statements
 
-  # Flink-scoped API key/secret are pre-existing (not managed by Terraform).
-  # Supply via env vars so the secret never lands in Terraform state.
-  flink_api_key    = get_env("TF_VAR_confluent_flink_api_key")
-  flink_api_secret = get_env("TF_VAR_confluent_flink_api_secret")
-
-  statements = local.statements
+  # Flink credentials are configured at the provider level (root.hcl pulls
+  # them from AKV) — no per-resource credentials block needed.
 }

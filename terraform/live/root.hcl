@@ -10,24 +10,65 @@ generate "provider" {
   path      = "provider.tf"
   if_exists = "overwrite_terragrunt"
   contents  = <<EOF
-# Confluent Cloud provider — credentials from environment variables.
-# Set TF_VAR_confluent_cloud_api_key and TF_VAR_confluent_cloud_api_secret
-# before running terragrunt.
+# -----------------------------------------------------------------------------
+# Generated provider config (overwritten by terragrunt on every run).
+#
+# Pulls Confluent Cloud admin + Flink API credentials from Azure Key Vault
+# at plan/apply time — secrets never enter Terraform state or CI env vars.
+# Auth to Azure comes from ARM_* env vars set by the workflow (CI) or from
+# \`az login\` (local).
+# -----------------------------------------------------------------------------
+
+provider "azurerm" {
+  features {}
+}
+
+data "azurerm_key_vault" "this" {
+  name                = var.azure_key_vault_name
+  resource_group_name = var.azure_key_vault_resource_group_name
+}
+
+# Cloud-scoped admin key — manages compute pools, environments, etc.
+data "azurerm_key_vault_secret" "confluent_admin_key" {
+  name         = "confluent-admin-key"
+  key_vault_id = data.azurerm_key_vault.this.id
+}
+
+data "azurerm_key_vault_secret" "confluent_admin_secret" {
+  name         = "confluent-admin-secret"
+  key_vault_id = data.azurerm_key_vault.this.id
+}
+
+# Flink-region-scoped key — submits statements. Owned by the service account
+# referenced as service_account_id in flink-config.json.
+data "azurerm_key_vault_secret" "confluent_flink_key" {
+  name         = "confluent-flink-key"
+  key_vault_id = data.azurerm_key_vault.this.id
+}
+
+data "azurerm_key_vault_secret" "confluent_flink_secret" {
+  name         = "confluent-flink-secret"
+  key_vault_id = data.azurerm_key_vault.this.id
+}
+
+# Provider configured with both cloud and Flink credentials. Resources inherit
+# automatically — confluent_flink_statement no longer needs its own
+# \`credentials\` block.
 provider "confluent" {
-  cloud_api_key    = var.confluent_cloud_api_key
-  cloud_api_secret = var.confluent_cloud_api_secret
+  cloud_api_key    = data.azurerm_key_vault_secret.confluent_admin_key.value
+  cloud_api_secret = data.azurerm_key_vault_secret.confluent_admin_secret.value
+  flink_api_key    = data.azurerm_key_vault_secret.confluent_flink_key.value
+  flink_api_secret = data.azurerm_key_vault_secret.confluent_flink_secret.value
 }
 
-variable "confluent_cloud_api_key" {
-  description = "Confluent Cloud API key. Supply via TF_VAR_confluent_cloud_api_key."
+variable "azure_key_vault_name" {
+  description = "Name of the AKV holding Confluent secrets. Supply via TF_VAR_azure_key_vault_name."
   type        = string
-  sensitive   = true
 }
 
-variable "confluent_cloud_api_secret" {
-  description = "Confluent Cloud API secret. Supply via TF_VAR_confluent_cloud_api_secret."
+variable "azure_key_vault_resource_group_name" {
+  description = "Resource group of the AKV above. Supply via TF_VAR_azure_key_vault_resource_group_name."
   type        = string
-  sensitive   = true
 }
 EOF
 }

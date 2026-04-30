@@ -14,20 +14,8 @@ variable "principal_id" {
 }
 
 variable "flink_rest_endpoint" {
-  description = "Flink REST endpoint for the compute pool's region."
+  description = "Flink REST endpoint for the compute pool's region. Comes from the compute-pool stack's outputs via Terragrunt dependency."
   type        = string
-}
-
-variable "flink_api_key" {
-  description = "Flink-scoped API key (different from the cloud API key)."
-  type        = string
-  sensitive   = true
-}
-
-variable "flink_api_secret" {
-  description = "Flink-scoped API secret (different from the cloud API secret)."
-  type        = string
-  sensitive   = true
 }
 
 variable "statements" {

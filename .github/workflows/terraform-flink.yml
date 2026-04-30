@@ -48,15 +48,13 @@ jobs:
     name: terragrunt ${{ github.event.inputs.action || 'plan' }} (${{ github.event.inputs.stack || 'dev' }})
     runs-on: ubuntu-latest
     env:
-      # ---- Confluent Cloud admin credentials (cloud-scoped) ----
-      TF_VAR_confluent_cloud_api_key:    ${{ secrets.CONFLUENT_CLOUD_API_KEY }}
-      TF_VAR_confluent_cloud_api_secret: ${{ secrets.CONFLUENT_CLOUD_API_SECRET }}
+      # ---- Confluent secrets are pulled from AKV by root.hcl at plan time ----
+      # Pass the AKV identifiers (non-sensitive) so the generated provider.tf
+      # can locate the vault. Names live as repo *vars*, not secrets.
+      TF_VAR_azure_key_vault_name:                ${{ vars.AZURE_KEY_VAULT_NAME }}
+      TF_VAR_azure_key_vault_resource_group_name: ${{ vars.AZURE_KEY_VAULT_RESOURCE_GROUP_NAME }}
 
-      # ---- Flink-scoped credentials (submit statements) ----
-      TF_VAR_confluent_flink_api_key:    ${{ secrets.CONFLUENT_FLINK_API_KEY }}
-      TF_VAR_confluent_flink_api_secret: ${{ secrets.CONFLUENT_FLINK_API_SECRET }}
-
-      # ---- Azure SP for state backend (no OIDC — client secret auth) ----
+      # ---- Azure SP for state backend + AKV reads (no OIDC — client secret) ----
       ARM_TENANT_ID:       ${{ secrets.ARM_TENANT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID:       ${{ secrets.ARM_CLIENT_ID }}
