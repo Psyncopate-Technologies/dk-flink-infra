@@ -33,9 +33,16 @@ resource "confluent_flink_statement" "statements" {
 
   rest_endpoint = var.flink_rest_endpoint
 
-  # `credentials` omitted — flink_api_key / flink_api_secret are supplied at
-  # the provider level (see generated provider.tf via root.hcl), so all
-  # confluent_flink_statement resources inherit them automatically.
+  # Flink credentials are read from AKV via the data sources declared in
+  # root.hcl's generated provider.tf (same init dir, accessible by name).
+  # Resource-level credentials are needed because the Confluent provider's
+  # flink_* attributes are all-or-nothing — we'd have to also set
+  # rest_endpoint / compute_pool_id / environment_id at the provider level,
+  # which can't work since those are per-stack.
+  credentials {
+    key    = data.azurerm_key_vault_secret.confluent_flink_key.value
+    secret = data.azurerm_key_vault_secret.confluent_flink_secret.value
+  }
 
   statement  = each.value.sql
   properties = each.value.properties

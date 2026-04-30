@@ -51,14 +51,13 @@ data "azurerm_key_vault_secret" "confluent_flink_secret" {
   key_vault_id = data.azurerm_key_vault.this.id
 }
 
-# Provider configured with both cloud and Flink credentials. Resources inherit
-# automatically — confluent_flink_statement no longer needs its own
-# \`credentials\` block.
+# Cloud-level credentials only — Flink credentials go on the
+# confluent_flink_statement resource directly (the provider's flink_* fields
+# must be all-or-nothing across 7 attributes, several of which are per-stack
+# and only known after the compute-pool dependency resolves).
 provider "confluent" {
   cloud_api_key    = data.azurerm_key_vault_secret.confluent_admin_key.value
   cloud_api_secret = data.azurerm_key_vault_secret.confluent_admin_secret.value
-  flink_api_key    = data.azurerm_key_vault_secret.confluent_flink_key.value
-  flink_api_secret = data.azurerm_key_vault_secret.confluent_flink_secret.value
 }
 
 variable "azure_key_vault_name" {
