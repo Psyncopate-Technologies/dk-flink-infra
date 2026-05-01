@@ -20,7 +20,7 @@
         "sql.current-catalog": "default",
         "sql.current-database": "base_cluster"
       },
-      "stopped": true
+      "stopped": false
     }
   }
 }
