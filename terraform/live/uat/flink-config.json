@@ -1,18 +1,26 @@
 {
-  "_comment": "UAT environment Flink configuration. UPDATE these placeholders with real DKP UAT values before applying.",
+  "_comment": "UAT environment Flink configuration. Shared by compute-pool and statements stacks. Replace TODO-* placeholders with DKP-provided values before applying.",
 
-  "organization_id": "TODO-UAT-ORG-ID",
-  "environment_id": "TODO-UAT-ENV-ID",
-  "service_account_id": "TODO-UAT-SA-ID",
+  "organization_id": "TODO-DKP-ORG-UUID",
+  "environment_id": "TODO-DKP-UAT-ENV-ID",
+  "service_account_id": "TODO-DKP-UAT-SA-ID",
 
   "compute_pool": {
-    "display_name": "dk-confluent-uat-flink-pool",
-    "cloud": "AWS",
-    "region": "us-east-2",
-    "max_cfu": 5
+    "display_name": "dkp-flink-uat-pool",
+    "cloud": "TODO-AWS-OR-AZURE-OR-GCP",
+    "region": "TODO-DKP-REGION",
+    "max_cfu": 10
   },
 
   "statements": {
-    "_comment": "Add Flink SQL statements as map entries. Keys prefixed with _ are ignored by terragrunt."
+    "example_statement": {
+      "name": "TODO-statement-name",
+      "sql": "TODO-FLINK-SQL-INSERT-INTO-OR-CREATE-TABLE-AS-SELECT",
+      "properties": {
+        "sql.current-catalog": "TODO-CATALOG-NAME",
+        "sql.current-database": "TODO-DATABASE-NAME"
+      },
+      "stopped": false
+    }
   }
 }

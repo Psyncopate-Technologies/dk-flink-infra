@@ -12,12 +12,6 @@ include "root" {
 
 locals {
   config = jsondecode(file("${get_terragrunt_dir()}/../flink-config.json"))
-
-  # Drop keys prefixed with "_" so flink-config.json can carry inline
-  # documentation (_comment, _example) without polluting the statements map.
-  statements = {
-    for k, v in local.config.statements : k => v if !startswith(k, "_")
-  }
 }
 
 dependency "compute_pool" {
@@ -40,7 +34,7 @@ inputs = {
   principal_id        = local.config.service_account_id
   compute_pool_id     = dependency.compute_pool.outputs.id
   flink_rest_endpoint = dependency.compute_pool.outputs.flink_rest_endpoint
-  statements          = local.statements
+  statements          = local.config.statements
 
   # Flink credentials are configured at the provider level (root.hcl pulls
   # them from AKV) — no per-resource credentials block needed.
