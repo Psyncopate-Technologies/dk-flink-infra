@@ -8,7 +8,10 @@ name: terraform-flink
 #   • PRs touching terraform/, tools/, or this workflow run plan-only against
 #     dev — review-time validation, no infra changes.
 #
-# State backend: Azure Storage (azurerm). Auth: SP + client secret (no OIDC).
+# State backend: Azure Storage (azurerm). Auth: OIDC / Workload Identity
+# Federation. The Entra app registration has NO client secret — it trusts
+# GitHub Actions OIDC tokens via federated credentials (configured by
+# tools/bootstrap-azure-state.sh).
 # Required GitHub repo secrets — see .github/README.md.
 # ============================================================================
 
@@ -35,6 +38,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write   # required for OIDC token issuance to azurerm provider/backend
 
 # Cancel in-progress runs only for PRs (rapid iteration). For workflow_dispatch
 # (apply / destroy) we never cancel — interrupting an apply mid-flight risks
@@ -54,11 +58,14 @@ jobs:
       TF_VAR_azure_key_vault_name:                ${{ vars.AZURE_KEY_VAULT_NAME }}
       TF_VAR_azure_key_vault_resource_group_name: ${{ vars.AZURE_KEY_VAULT_RESOURCE_GROUP_NAME }}
 
-      # ---- Azure SP for state backend + AKV reads (no OIDC — client secret) ----
+      # ---- Azure auth: OIDC (Workload Identity Federation) ----
+      # The azurerm provider + backend pick up ARM_USE_OIDC=true and exchange
+      # the GitHub-issued OIDC token (granted by `id-token: write` above) for
+      # an Azure access token. No client secret is stored or transmitted.
+      ARM_USE_OIDC:        "true"
       ARM_TENANT_ID:       ${{ secrets.ARM_TENANT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID:       ${{ secrets.ARM_CLIENT_ID }}
-      ARM_CLIENT_SECRET:   ${{ secrets.ARM_CLIENT_SECRET }}
 
       # ---- State backend location (read by terraform/live/root.hcl) ----
       TG_STATE_RESOURCE_GROUP:  ${{ secrets.TG_STATE_RESOURCE_GROUP }}

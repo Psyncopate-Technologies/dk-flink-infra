@@ -23,7 +23,7 @@ provider "azurerm" {
   features {}
 }
 
-data "azurerm_key_vault" "this" {
+data "azurerm_key_vault" "corp_it" {
   name                = var.azure_key_vault_name
   resource_group_name = var.azure_key_vault_resource_group_name
 }
@@ -31,24 +31,24 @@ data "azurerm_key_vault" "this" {
 # Cloud-scoped admin key — manages compute pools, environments, etc.
 data "azurerm_key_vault_secret" "confluent_admin_key" {
   name         = "confluent-admin-key"
-  key_vault_id = data.azurerm_key_vault.this.id
+  key_vault_id = data.azurerm_key_vault.corp_it.id
 }
 
 data "azurerm_key_vault_secret" "confluent_admin_secret" {
   name         = "confluent-admin-secret"
-  key_vault_id = data.azurerm_key_vault.this.id
+  key_vault_id = data.azurerm_key_vault.corp_it.id
 }
 
 # Flink-region-scoped key — submits statements. Owned by the service account
 # referenced as service_account_id in flink-config.json.
 data "azurerm_key_vault_secret" "confluent_flink_key" {
   name         = "confluent-flink-key"
-  key_vault_id = data.azurerm_key_vault.this.id
+  key_vault_id = data.azurerm_key_vault.corp_it.id
 }
 
 data "azurerm_key_vault_secret" "confluent_flink_secret" {
   name         = "confluent-flink-secret"
-  key_vault_id = data.azurerm_key_vault.this.id
+  key_vault_id = data.azurerm_key_vault.corp_it.id
 }
 
 # Cloud-level credentials only — Flink credentials go on the
@@ -82,9 +82,11 @@ EOF
 #   TG_STATE_STORAGE_ACCOUNT  — globally-unique SA name
 #   TG_STATE_CONTAINER        — blob container (defaults to "tfstate")
 #
-# Auth: ARM_TENANT_ID / ARM_SUBSCRIPTION_ID / ARM_CLIENT_ID /
-# ARM_CLIENT_SECRET picked up by the azurerm SDK directly. No OIDC.
-# (Locally, `az login` + your user creds also work as a fallback.)
+# Auth: OIDC / Workload Identity Federation in CI. The workflow sets
+# ARM_USE_OIDC=true and provides ARM_TENANT_ID / ARM_SUBSCRIPTION_ID /
+# ARM_CLIENT_ID; the azurerm SDK exchanges the GitHub OIDC token for an
+# Azure access token. No client secret is stored. Locally, ARM_USE_OIDC is
+# unset and the SDK falls through to `az login` (Azure CLI) auth.
 #
 # State key is derived from the stack's path, so each stack has its own blob:
 #   dev/compute-pool/terraform.tfstate
@@ -107,17 +109,22 @@ remote_state {
 
     # Use the AAD identity directly for blob ops (data-plane RBAC).
     # Without this, the backend tries Microsoft.Storage/storageAccounts/listKeys
-    # which our SP doesn't have (only `Storage Blob Data Contributor`).
+    # which the SP doesn't have (only `Storage Blob Data Contributor`).
     use_azuread_auth = true
 
-    # Pass SP creds explicitly so the auth chain short-circuits to client-secret
-    # auth and never tries MSI / Azure CLI fallbacks. On GitHub-hosted runners
-    # (not on Azure VMs), the MSI/IMDS endpoint at 169.254.169.254 doesn't
-    # answer, and the Azure SDK waits ~3 minutes before giving up — exactly
-    # the symptom we hit when `Initializing the backend...` hangs forever.
-    tenant_id       = get_env("ARM_TENANT_ID")
-    subscription_id = get_env("ARM_SUBSCRIPTION_ID")
-    client_id       = get_env("ARM_CLIENT_ID")
-    client_secret   = get_env("ARM_CLIENT_SECRET")
+    # OIDC path — turned on by the workflow via ARM_USE_OIDC=true. When unset
+    # (local CLI), the backend falls through to `az login` auth.
+    use_oidc = get_env("ARM_USE_OIDC", "false") == "true"
+
+    # Pass identifiers explicitly so the auth chain short-circuits and never
+    # tries MSI / IMDS fallbacks. On GitHub-hosted runners (not on Azure VMs)
+    # the IMDS endpoint at 169.254.169.254 doesn't answer, and the Azure SDK
+    # waits ~3 minutes before giving up — the symptom we hit when
+    # `Initializing the backend...` hung forever in the SP+secret era.
+    # Empty defaults are fine locally: the backend ignores empty strings and
+    # falls through to Azure CLI auth.
+    tenant_id       = get_env("ARM_TENANT_ID", "")
+    subscription_id = get_env("ARM_SUBSCRIPTION_ID", "")
+    client_id       = get_env("ARM_CLIENT_ID", "")
   }
 }

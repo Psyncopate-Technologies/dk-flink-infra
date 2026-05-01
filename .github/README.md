@@ -11,9 +11,11 @@ Triggers:
 - **`pull_request`** on changes to `terraform/**`, `tools/**`, or the workflow itself — defaults to `plan` against the `dev` stack.
 - **`workflow_dispatch`** — pick `stack` and `action` from the Actions UI.
 
-State backend: **Azure Storage** (`azurerm`). Auth to Azure: service principal + client secret (no OIDC). Confluent admin + Flink credentials are pulled from **Azure Key Vault** at plan/apply time — they never enter Terraform state, GitHub secrets, or CI environment variables. The same SP authenticates to the state storage account and reads the AKV secrets.
+State backend: **Azure Storage** (`azurerm`). Auth to Azure: **OIDC / Workload Identity Federation** — the Entra app registration has no client secret. Instead, federated credentials on the app trust GitHub Actions OIDC tokens for `refs/heads/main` and `pull_request`. CI exchanges the short-lived GitHub-issued JWT for an Azure access token at run time. Nothing rotates, nothing leaks if a workflow log spills.
 
-The bootstrap script `tools/bootstrap-azure-state.sh` provisions the state storage account, the SP, and the AKV (with RBAC granted to the SP) in one shot. After it runs, you populate the AKV with four secrets (the Confluent API keys you got from Confluent Cloud) and paste seven values into GitHub.
+Confluent admin + Flink credentials are pulled from **Azure Key Vault** at plan/apply time — they never enter Terraform state, GitHub secrets, or CI environment variables. The same SP authenticates to the state storage account and reads the AKV secrets.
+
+The bootstrap script `tools/bootstrap-azure-state.sh` provisions the state storage account, the app registration + SP (passwordless), the federated credentials, and the AKV (with RBAC granted to the SP) in one shot. After it runs, you populate the AKV with four secrets (the Confluent API keys you got from Confluent Cloud) and paste six values into GitHub.
 
 ## Repository secrets
 
@@ -23,10 +25,11 @@ Set at **repo → Settings → Secrets and variables → Actions → Repository 
 
 | Name | Maps to env var | Purpose |
 |---|---|---|
-| `ARM_TENANT_ID` | `ARM_TENANT_ID` | Entra tenant of your Psyncopate Azure subscription. |
+| `ARM_TENANT_ID` | `ARM_TENANT_ID` | Entra tenant of the target Azure subscription. |
 | `ARM_SUBSCRIPTION_ID` | `ARM_SUBSCRIPTION_ID` | Subscription that hosts the state SA + AKV. |
-| `ARM_CLIENT_ID` | `ARM_CLIENT_ID` | App ID of the service principal `sp-flink-tf-state-rw`. |
-| `ARM_CLIENT_SECRET` | `ARM_CLIENT_SECRET` | Client secret for the SP. **Expires 1 year from creation — rotate before then.** |
+| `ARM_CLIENT_ID` | `ARM_CLIENT_ID` | App ID of the service principal (e.g. `sp-flink-tf-state-rw`). |
+
+**No `ARM_CLIENT_SECRET`** — auth is via OIDC. The workflow sets `ARM_USE_OIDC=true` and the azurerm SDK exchanges the GitHub OIDC token (issued because the workflow has `permissions: id-token: write`) for an Azure access token. The federated credentials on the app registration determine which workflows are trusted (subjects: `repo:<owner>/<repo>:ref:refs/heads/main` and `repo:<owner>/<repo>:pull_request`).
 
 ### State backend location
 
@@ -62,12 +65,13 @@ Non-secret values (`organization_id`, `environment_id`, `service_account_id`, re
 
 ## Local CLI equivalent
 
-Local execution uses the same Azure backend + AKV, so state writes go to the same SA and secret reads hit the same vault. Two auth options for local:
-
-**(a) Use the SP creds** (mirrors CI exactly):
+OIDC is GitHub-Actions-only — locally you authenticate as your own Azure user via `az login`. Your user needs **`Storage Blob Data Contributor` on the state SA** plus **`Key Vault Secrets User` (or Secrets Officer) on the AKV**. The bootstrap script grants you `Key Vault Secrets Officer` automatically when you run it as the signed-in user; storage RBAC for your user has to be granted separately if you want local apply rights.
 
 ```bash
-set -a; source .env.azure; set +a   # paste bootstrap output into .env.azure (gitignored)
+az login
+az account set --subscription "<sub-id>"
+
+set -a; source .env.azure; set +a   # state-location vars only — see below
 
 bash tools/install.sh
 export PATH="$(pwd)/tools/bin:$PATH"
@@ -78,20 +82,14 @@ terragrunt run-all apply
 terragrunt run-all destroy
 ```
 
-**(b) Use your own Azure user** (no SP creds locally; just `az login`):
+`.env.azure` (gitignored) holds **state-location values only** — no auth values, since `az login` provides the credentials. The bootstrap script prints these:
 
 ```bash
-az login
-az account set --subscription "<sub-id>"
-
 export TG_STATE_RESOURCE_GROUP="rg-flink-tf-state"
 export TG_STATE_STORAGE_ACCOUNT="<sa-name>"
 export TG_STATE_CONTAINER="tfstate"
 export TF_VAR_azure_key_vault_name="<akv-name>"
 export TF_VAR_azure_key_vault_resource_group_name="<akv-rg>"
-
-cd terraform/live/dev
-terragrunt run-all plan
 ```
 
-For (b) your Azure user needs both `Storage Blob Data Contributor` on the SA **and** `Key Vault Secrets User` on the AKV — the bootstrap script grants you `Key Vault Secrets Officer` (a superset) automatically when you run it as the signed-in user.
+`ARM_USE_OIDC` is intentionally *not* set locally — `root.hcl` defaults it to `false` so the backend falls through to `az login`. Setting it locally would make the backend look for an OIDC token that doesn't exist outside GitHub Actions.
